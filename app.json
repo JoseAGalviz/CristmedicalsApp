@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "Cristmedicals",
+    "slug": "Cristmedicals",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/logoNew.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/logoNew.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone",
+          "recordAudioAndroid": true
+        }
+      ]
+    ],
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logoNew.png",
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.VIBRATE",
+        "android.permission.INTERNET"
+      ],
+      "edgeToEdgeEnabled": true,
+      "package": "ccom.josearaqueg.cristmedicals",
+      "usesCleartextTraffic": true
+    },
+    "web": {
+      "favicon": "./assets/logoNew.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "677acec4-a876-4b5c-b576-b6d65d0803c8"
+      }
+    },
+    "owner": "ccristmedicals"
+  }
+}
