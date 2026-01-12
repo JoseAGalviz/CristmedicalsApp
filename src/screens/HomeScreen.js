@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, SafeAreaView, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, SafeAreaView, Dimensions, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { syncAllData } from '../services/syncAllData'; // Importa la función correctamente
@@ -119,6 +119,38 @@ export default function HomeScreen({ navigation }) {
     }
   }, [cargarClientes]);
 
+  // Abrir link de negociaciones
+  const handleOpenNegociaciones = useCallback(async () => {
+    if (user && user.co_ven) {
+      const url = `http://98.94.185.164:8020/dashboard?ven=${user.co_ven}`;
+      try {
+        const supported = await Linking.canOpenURL(url);
+        if (supported) {
+          await Linking.openURL(url);
+        } else {
+          showMessage({
+            message: "No se puede abrir el enlace",
+            description: "El formato de la URL no es válido para su navegador.",
+            type: "warning",
+          });
+        }
+      } catch (error) {
+        console.error('Error opening URL:', error);
+        showMessage({
+          message: "Error al abrir el enlace",
+          description: error.message,
+          type: "danger",
+        });
+      }
+    } else {
+      showMessage({
+        message: "Código de vendedor no encontrado",
+        description: "No se encontró el co_ven del usuario.",
+        type: "danger",
+      });
+    }
+  }, [user]);
+
   // Configurar el header de navegación
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -170,6 +202,16 @@ export default function HomeScreen({ navigation }) {
             <Text style={styles.infoSubtitle}>Total sincronizados</Text>
           </View>
         </View>
+
+        <TouchableOpacity
+          style={styles.negociacionesButton}
+          onPress={handleOpenNegociaciones}
+          accessibilityLabel="Ir a Negociaciones"
+          accessibilityHint="Abre el dashboard de negociaciones en el navegador"
+        >
+          <Ionicons name="stats-chart" size={24} color={COLORS.WHITE} style={styles.btnIcon} />
+          <Text style={styles.negociacionesButtonText}>Negociaciones</Text>
+        </TouchableOpacity>
 
         {/* Overlay de sincronización */}
         {syncing && (
@@ -340,5 +382,31 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textAlign: 'center',
     width: '100%',
+  },
+  negociacionesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.SECONDARY, // Usamos el verde secundario para diferenciar
+    paddingVertical: 15,
+    paddingHorizontal: 25,
+    borderRadius: 12,
+    marginTop: 20,
+    width: '100%',
+    maxWidth: 500,
+    shadowColor: COLORS.SECONDARY,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 6,
+  },
+  negociacionesButtonText: {
+    color: COLORS.WHITE,
+    fontWeight: 'bold',
+    fontSize: 18,
+    letterSpacing: 1,
+  },
+  btnIcon: {
+    marginRight: 10,
   },
 });
