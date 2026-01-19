@@ -254,9 +254,8 @@ export default function ChequeoGuiaCargaScreen() {
         if (!escaneo.nota)
           partesFaltantes.push(`Nota: ${item.nota ?? "N/A"}`);
         if (partesFaltantes.length > 0) {
-          return `- ${partesFaltantes.join(" | ")} | Descripción: ${
-            item.descrip ?? ""
-          }`;
+          return `- ${partesFaltantes.join(" | ")} | Descripción: ${item.descrip ?? ""
+            }`;
         }
         return null;
       })
@@ -317,9 +316,8 @@ export default function ChequeoGuiaCargaScreen() {
         partesFaltantes.push(`Factura: ${item.factura ?? "N/A"}`);
       if (!escaneo.nota) partesFaltantes.push(`Nota: ${item.nota ?? "N/A"}`);
       if (partesFaltantes.length > 0) {
-        resumenPedidos += `- ${partesFaltantes.join(" | ")} | Descripción: ${
-          item.descrip ?? ""
-        }\n`;
+        resumenPedidos += `- ${partesFaltantes.join(" | ")} | Descripción: ${item.descrip ?? ""
+          }\n`;
       }
     });
     if (!resumenPedidos)
@@ -568,7 +566,7 @@ export default function ChequeoGuiaCargaScreen() {
               style={[
                 styles.guiaItem,
                 esGuiaProcesada(item.numeroCarga) &&
-                  styles.guiaItemDeshabilitada,
+                styles.guiaItemDeshabilitada,
               ]}
               onPress={async () => {
                 if (!esGuiaProcesada(item.numeroCarga)) {
@@ -705,7 +703,7 @@ export default function ChequeoGuiaCargaScreen() {
             <Text style={{ fontSize: 24 }}>🧹</Text>
           </TouchableOpacity>
         </View>
-        
+
         <Text style={styles.pedidosCount}>
           Cantidad de pedidos:{" "}
           <Text style={styles.pedidosCountNumber}>
@@ -902,9 +900,8 @@ export default function ChequeoGuiaCargaScreen() {
                   if (!escaneo.nota)
                     partesFaltantes.push(`Nota: ${item.nota ?? "N/A"}`);
                   if (partesFaltantes.length > 0) {
-                    return `- ${partesFaltantes.join(" | ")} | Descripción: ${
-                      item.descrip ?? ""
-                    }`;
+                    return `- ${partesFaltantes.join(" | ")} | Descripción: ${item.descrip ?? ""
+                      }`;
                   }
                   return null;
                 })
@@ -1220,18 +1217,27 @@ const styles = StyleSheet.create({
 });
 
 function transformarNumFactura(num_factura) {
-  if (/^A\d{7}$/.test(num_factura)) {
-    if (num_factura.startsWith("A2")) {
-      return "7" + num_factura.slice(1);
+  if (num_factura === null || num_factura === undefined) return '';
+  let str = String(num_factura).trim().toUpperCase();
+
+  if (/^A\d{7}$/.test(str)) {
+    if (str.startsWith("A2")) {
+      return "7" + str.slice(1);
     }
-    return String(Number(num_factura.slice(1)));
+    return String(Number(str.slice(1)));
   }
-  if (/^B\d{7}$/.test(num_factura)) {
-    const serie = num_factura.slice(1);
+  if (/^B\d{7}$/.test(str)) {
+    const serie = str.slice(1);
     if (serie < "0050000") {
       return "8" + serie;
     }
     return "5" + serie;
   }
-  return num_factura;
+
+  // Normalización numérica genérica: quitar ceros a la izquierda
+  if (/^\d+$/.test(str)) {
+    return String(Number(str));
+  }
+
+  return str;
 }

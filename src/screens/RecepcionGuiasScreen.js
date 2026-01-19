@@ -371,9 +371,8 @@ export default function RecepcionGuiasScreen() {
         if (!escaneo.factura) partes.push(`Factura: ${item.factura ?? "N/A"}`);
         if (!escaneo.nota) partes.push(`Nota: ${item.nota ?? "N/A"}`);
         if (partes.length > 0) {
-          return `- ${partes.join(" | ")} | Descripción: ${
-            item.descripcion ?? item.descrip ?? ""
-          }`;
+          return `- ${partes.join(" | ")} | Descripción: ${item.descripcion ?? item.descrip ?? ""
+            }`;
         }
         return null;
       })
@@ -574,8 +573,8 @@ export default function RecepcionGuiasScreen() {
         !texto
           ? true
           : [g.id_ca, g.ruta, g.conductor, g.nombre, g.descripcion, g.descrip]
-              .map((x) => (x ? String(x).toLowerCase() : ""))
-              .some((val) => val.includes(texto))
+            .map((x) => (x ? String(x).toLowerCase() : ""))
+            .some((val) => val.includes(texto))
       );
   }, [guias, guiasRegistradasIds, busqueda]);
 
@@ -1178,21 +1177,28 @@ const styles = StyleSheet.create({
 
 // Utilidades
 const transformarNumFactura = (num_factura) => {
-  if (!num_factura) return num_factura;
+  if (num_factura === null || num_factura === undefined) return '';
+  let str = String(num_factura).trim().toUpperCase();
 
-  if (/^A\d{7}$/.test(num_factura)) {
-    if (num_factura.startsWith("A2")) {
-      return "7" + num_factura.slice(1);
+  if (/^A\d{7}$/.test(str)) {
+    if (str.startsWith("A2")) {
+      return "7" + str.slice(1);
     }
-    return String(Number(num_factura.slice(1)));
+    return String(Number(str.slice(1)));
   }
 
-  if (/^B\d{7}$/.test(num_factura)) {
-    const serie = num_factura.slice(1);
+  if (/^B\d{7}$/.test(str)) {
+    const serie = str.slice(1);
     if (serie < "0050000") {
       return "8" + serie;
     }
     return "5" + serie;
   }
-  return num_factura;
+
+  // Normalización numérica genérica: quitar ceros a la izquierda
+  if (/^\d+$/.test(str)) {
+    return String(Number(str));
+  }
+
+  return str;
 };

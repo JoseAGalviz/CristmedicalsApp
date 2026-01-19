@@ -1,10 +1,11 @@
 import React, { useLayoutEffect, useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, SafeAreaView, Dimensions, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, SafeAreaView, Dimensions, Linking, Modal, TextInput, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { syncAllData } from '../services/syncAllData'; // Importa la función correctamente
 import FlashMessage, { showMessage } from "react-native-flash-message";
 import { useAuth } from '../context/AuthContext';
+import { api } from '../services/api';
 
 // Constantes para evitar "magic strings"
 const STORAGE_KEYS = {
@@ -39,7 +40,11 @@ export default function HomeScreen({ navigation }) {
   const [syncing, setSyncing] = useState(false);
   const [clientesState, setClientesState] = useState([]);
 
-  // loadUser effect ELIMINADO - Usamos contexto
+  // Estados para el modal de descuento
+  const [showDiscountModal, setShowDiscountModal] = useState(false);
+  const [discountPercent, setDiscountPercent] = useState('0');
+
+  // ... (rest of the functions remain the same until handleCobranzaPreventiva)
 
   // Obtener totales desde AsyncStorage
   const obtenerTotales = useCallback(async () => {
@@ -119,26 +124,26 @@ export default function HomeScreen({ navigation }) {
     }
   }, [cargarClientes]);
 
-  // Abrir link de negociaciones
+  // Abrir link de negociaciones (Redirección vía API GET)
   const handleOpenNegociaciones = useCallback(async () => {
     if (user && user.co_ven) {
-      const url = `http://98.94.185.164:8020/dashboard?ven=${user.co_ven}`;
+      const url = `https://98.94.185.164.nip.io/api/auth/redirect-fixed-ip?co_ven=${user.co_ven}`;
       try {
         const supported = await Linking.canOpenURL(url);
         if (supported) {
           await Linking.openURL(url);
         } else {
           showMessage({
-            message: "No se puede abrir el enlace",
-            description: "El formato de la URL no es válido para su navegador.",
+            message: "Error de navegador",
+            description: "No se puede abrir el enlace en este dispositivo.",
             type: "warning",
           });
         }
       } catch (error) {
         console.error('Error opening URL:', error);
         showMessage({
-          message: "Error al abrir el enlace",
-          description: error.message,
+          message: "Error",
+          description: "No se pudo abrir la página de negociaciones.",
           type: "danger",
         });
       }
@@ -150,6 +155,40 @@ export default function HomeScreen({ navigation }) {
       });
     }
   }, [user]);
+
+  // Manejar generación de PDF de Cobranza Preventiva
+  const handleCobranzaPreventiva = useCallback(() => {
+    if (!user || !user.co_ven) {
+      showMessage({
+        message: "Código de vendedor no encontrado",
+        type: "danger",
+      });
+      return;
+    }
+    setShowDiscountModal(true);
+  }, [user]);
+
+  const confirmAndGenerate = async () => {
+    setShowDiscountModal(false);
+    setSyncing(true);
+    try {
+      const { generateCobranzaPDF } = require('../services/CobranzaPreventivaService');
+      await generateCobranzaPDF(user, discountPercent);
+      showMessage({
+        message: "PDF generado correctamente",
+        type: "success",
+      });
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      showMessage({
+        message: "Error al generar PDF",
+        description: error.message,
+        type: "danger",
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Configurar el header de navegación
   useLayoutEffect(() => {
@@ -201,17 +240,37 @@ export default function HomeScreen({ navigation }) {
             <Text style={styles.infoNumber}>{totalClientes}</Text>
             <Text style={styles.infoSubtitle}>Total sincronizados</Text>
           </View>
+
         </View>
 
         <TouchableOpacity
           style={styles.negociacionesButton}
           onPress={handleOpenNegociaciones}
-          accessibilityLabel="Ir a Negociaciones"
-          accessibilityHint="Abre el dashboard de negociaciones en el navegador"
+          accessibilityLabel="Ir a Mis Negociaciones"
+          accessibilityHint="Abre el dashboard de mis negociaciones en el navegador"
         >
           <Ionicons name="stats-chart" size={24} color={COLORS.WHITE} style={styles.btnIcon} />
-          <Text style={styles.negociacionesButtonText}>Negociaciones</Text>
+          <Text style={styles.negociacionesButtonText}>Mis Negociaciones</Text>
         </TouchableOpacity>
+
+        {user && user.co_ven && (
+          <TouchableOpacity
+            style={[styles.negociacionesButton, { marginTop: 15, backgroundColor: COLORS.PRIMARY }]}
+            onPress={handleCobranzaPreventiva}
+            disabled={syncing}
+            accessibilityLabel="Generar reporte de Cobranza Preventiva"
+            accessibilityHint="Genera y comparte un PDF con el reporte de cobranza preventiva"
+          >
+            {syncing ? (
+              <ActivityIndicator size={24} color={COLORS.WHITE} style={styles.btnIcon} />
+            ) : (
+              <Ionicons name="card-outline" size={24} color={COLORS.WHITE} style={styles.btnIcon} />
+            )}
+            <Text style={styles.negociacionesButtonText}>
+              {syncing ? 'Generando PDF...' : 'Cobranza Preventiva'}
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* Overlay de sincronización */}
         {syncing && (
@@ -232,6 +291,46 @@ export default function HomeScreen({ navigation }) {
         )}
 
         <FlashMessage position="top" />
+
+        {/* Modal de Descuento */}
+        <Modal
+          visible={showDiscountModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowDiscountModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Descuento Divisas</Text>
+              <Text style={styles.modalSubtitle}>Porcentaje de descuento para divisas en buen estado:</Text>
+
+              <TextInput
+                style={styles.discountInput}
+                keyboardType="numeric"
+                value={discountPercent}
+                onChangeText={setDiscountPercent}
+                placeholder="Ej: 5"
+                autoFocus={true}
+              />
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => setShowDiscountModal(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Cancelar</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.confirmButton]}
+                  onPress={confirmAndGenerate}
+                >
+                  <Text style={styles.confirmButtonText}>Generar PDF</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     </SafeAreaView>
   );
@@ -408,5 +507,77 @@ const styles = StyleSheet.create({
   },
   btnIcon: {
     marginRight: 10,
+  },
+  // Estilos del Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: COLORS.WHITE,
+    borderRadius: 20,
+    padding: 25,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.PRIMARY,
+    marginBottom: 10,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: COLORS.TEXT,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  discountInput: {
+    width: '100%',
+    height: 50,
+    borderWidth: 2,
+    borderColor: COLORS.PRIMARY,
+    borderRadius: 10,
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: COLORS.PRIMARY,
+    marginBottom: 25,
+    backgroundColor: COLORS.LIGHT_BACKGROUND,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+  cancelButton: {
+    backgroundColor: '#EEEEEE',
+  },
+  confirmButton: {
+    backgroundColor: COLORS.PRIMARY,
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  confirmButtonText: {
+    color: COLORS.WHITE,
+    fontWeight: 'bold',
   },
 });
