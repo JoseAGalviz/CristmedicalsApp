@@ -72,6 +72,48 @@ const getItemKey = (item) => {
   return `${f}_${n}`;
 };
 
+// --- Reconciliation Logic ---
+// Helps migrate scan status when a previously empty field (like 'nota') gets populated from the backend
+const reconcileScans = (newDetalle, currentEscaneos) => {
+  if (!currentEscaneos || Object.keys(currentEscaneos).length === 0) return currentEscaneos;
+
+  const updatedEscaneos = { ...currentEscaneos };
+  let hasChanges = false;
+
+  newDetalle.forEach(item => {
+    const newKey = getItemKey(item);
+
+    // If we already have data for this exact key, skip
+    if (updatedEscaneos[newKey]) return;
+
+    const f = normalizeCode(item.factura);
+    const n = normalizeCode(item.nota);
+
+    // Find a partial match in existing scans
+    // 1. Check if we have a scan for this factura but with NO nota
+    const oldKeyFacturaOnly = `${f}_`;
+    if (n && updatedEscaneos[oldKeyFacturaOnly]) {
+      console.log(`[RECONCILE] Migrating scan from ${oldKeyFacturaOnly} to ${newKey}`);
+      updatedEscaneos[newKey] = { ...updatedEscaneos[oldKeyFacturaOnly] };
+      delete updatedEscaneos[oldKeyFacturaOnly];
+      hasChanges = true;
+      return;
+    }
+
+    // 2. Check if we have a scan for this nota but with NO factura
+    const oldKeyNotaOnly = `_${n}`;
+    if (f && updatedEscaneos[oldKeyNotaOnly]) {
+      console.log(`[RECONCILE] Migrating scan from ${oldKeyNotaOnly} to ${newKey}`);
+      updatedEscaneos[newKey] = { ...updatedEscaneos[oldKeyNotaOnly] };
+      delete updatedEscaneos[oldKeyNotaOnly];
+      hasChanges = true;
+      return;
+    }
+  });
+
+  return hasChanges ? updatedEscaneos : currentEscaneos;
+};
+
 // --- Componentes ---
 
 const StatusIcon = ({ status }) => {
@@ -133,6 +175,7 @@ export default function GuiaCargaScreen({ navigation }) {
 
   // Polling
   const [isPolling, setIsPolling] = useState(false);
+  const [activeCargaId, setActiveCargaId] = useState(null); // NEW: The ID of the currently loaded and tracked charge
 
   // Estados para Modal de Feedback
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -216,17 +259,40 @@ export default function GuiaCargaScreen({ navigation }) {
       // Asumiendo que response ya es el objeto data (por api.js)
       // Ajustar estructura según GuiaCargaScreen anterior: response.cargado / response.detalle
       if (response && (response.cargado || response.detalle)) {
+        // --- Scan Reconciliation Logic ---
+        // If we have new details, check if any existing scans need key migration
+        if (response.detalle && response.detalle.length > 0) {
+          setEscaneos(prev => {
+            const next = reconcileScans(response.detalle, prev);
+            // If keys were migrated, ensure they are saved to persistent storage
+            if (next !== prev && num) {
+              AsyncStorage.setItem(`${STORAGE_KEYS.ESCANEOS_PREFIX}${num}`, JSON.stringify(next))
+                .catch(e => console.error('Error saving reconciled scans:', e));
+            }
+            return next;
+          });
+        }
+
         setGuiaData(response);
         // Si es la primera carga (no background), activamos polling y recuperamos escaneos previos
         if (!isBackground) {
+          setActiveCargaId(num); // Set this only on manual/initial search success
           await loadSavedScans(num);
           setIsPolling(true);
         }
       } else {
-        if (!isBackground) setError('No se encontraron datos para esta carga.');
+        if (!isBackground) {
+          setError('No se encontraron datos para esta carga.');
+          setActiveCargaId(null);
+          setGuiaData(null);
+        }
       }
     } catch (err) {
-      if (!isBackground) setError(err.message || 'Error al buscar la carga.');
+      if (!isBackground) {
+        setError(err.message || 'Error al buscar la carga.');
+        setActiveCargaId(null);
+        setGuiaData(null);
+      }
       // En background fallamos silenciosamente
     } finally {
       if (!isBackground) setLoading(false);
@@ -240,11 +306,11 @@ export default function GuiaCargaScreen({ navigation }) {
     if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
 
     const poll = async () => {
-      // Only poll if screen is focused and we have a number
-      if (!numeroCarga) return;
+      // Only poll if screen is focused and we have an active ID
+      if (!activeCargaId) return;
 
       try {
-        await fetchGuia(numeroCarga, true);
+        await fetchGuia(activeCargaId, true);
       } catch (e) {
         // Ignore background errors
       }
@@ -256,7 +322,7 @@ export default function GuiaCargaScreen({ navigation }) {
     };
 
     poll();
-  }, [numeroCarga, fetchGuia, isPolling]);
+  }, [activeCargaId, fetchGuia, isPolling]);
 
   useEffect(() => {
     if (isPolling) {
@@ -273,8 +339,9 @@ export default function GuiaCargaScreen({ navigation }) {
   // --- Lógica de Escaneo ---
   const guardarEscaneosLocal = async (nuevosEscaneos) => {
     try {
+      if (!activeCargaId) return false;
       setSaveStatus('saving');
-      await AsyncStorage.setItem(`${STORAGE_KEYS.ESCANEOS_PREFIX}${numeroCarga}`, JSON.stringify(nuevosEscaneos));
+      await AsyncStorage.setItem(`${STORAGE_KEYS.ESCANEOS_PREFIX}${activeCargaId}`, JSON.stringify(nuevosEscaneos));
       const now = new Date();
       setLastSaved(now);
       setSaveStatus('saved');
@@ -303,7 +370,7 @@ export default function GuiaCargaScreen({ navigation }) {
   // NEW: Auto-save con debounce cuando cambian los escaneos
   const saveTimerRef = React.useRef(null);
   useEffect(() => {
-    if (Object.keys(escaneos).length > 0 && numeroCarga) {
+    if (Object.keys(escaneos).length > 0 && activeCargaId) {
       // Debounce de 500ms para evitar escrituras excesivas
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
@@ -313,7 +380,7 @@ export default function GuiaCargaScreen({ navigation }) {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [escaneos, numeroCarga]);
+  }, [escaneos, activeCargaId]);
 
   const limpiarEscaneos = async () => {
     Alert.alert(
@@ -326,7 +393,9 @@ export default function GuiaCargaScreen({ navigation }) {
           style: 'destructive',
           onPress: async () => {
             setEscaneos({});
-            await AsyncStorage.removeItem(`${STORAGE_KEYS.ESCANEOS_PREFIX}${numeroCarga}`);
+            if (activeCargaId) {
+              await AsyncStorage.removeItem(`${STORAGE_KEYS.ESCANEOS_PREFIX}${activeCargaId}`);
+            }
           }
         }
       ]
@@ -335,7 +404,7 @@ export default function GuiaCargaScreen({ navigation }) {
 
   // NEW: Función para guardar progreso forzado (sin validar estatus)
   const guardarProgresoForzado = async () => {
-    if (!guiaData || !numeroCarga) {
+    if (!guiaData || !activeCargaId) {
       Alert.alert('Error', 'No hay datos para guardar');
       return;
     }
@@ -356,7 +425,7 @@ export default function GuiaCargaScreen({ navigation }) {
               // Preparar datos para guardado
               const now = new Date();
               const progresoData = {
-                numeroCarga,
+                numeroCarga: activeCargaId,
                 escaneos: escaneos,
                 totalEscaneados: Object.keys(escaneos).length,
                 totalItems: guiaData.detalle?.length || 0,
@@ -372,7 +441,7 @@ export default function GuiaCargaScreen({ navigation }) {
               const progresos = await AsyncStorage.getItem(progresosKey).then(res => res ? JSON.parse(res) : []) || [];
 
               // Actualizar o agregar
-              const index = progresos.findIndex(p => p.numeroCarga === numeroCarga);
+              const index = progresos.findIndex(p => p.numeroCarga === activeCargaId);
               if (index >= 0) {
                 progresos[index] = progresoData;
               } else {
@@ -414,7 +483,7 @@ export default function GuiaCargaScreen({ navigation }) {
 
       // Validamos duplicados en "Historial de cargas enviadas", pero permitimos re-envío si falló antes?
       // Por ahora simple: si ya está, avisamos.
-      const yaExiste = guiasCargadas.some(g => String(g.numeroCarga) === String(numeroCarga));
+      const yaExiste = guiasCargadas.some(g => String(g.numeroCarga) === String(activeCargaId));
       if (yaExiste) {
         // Opcional: Permitir actualizar? 
         // Alert.alert('Aviso', 'Esta guía ya fue registrada anteriormente.');
@@ -441,7 +510,7 @@ export default function GuiaCargaScreen({ navigation }) {
       // Payload para envío
       const payload = {
         ok: true,
-        id_ca: Number(numeroCarga),
+        id_ca: Number(activeCargaId),
         detalle: payloadDetalle,
         cargado: payloadCargado
       };
@@ -449,7 +518,7 @@ export default function GuiaCargaScreen({ navigation }) {
       // Datos para guardado local
       const now = new Date();
       const nuevaGuia = {
-        numeroCarga,
+        numeroCarga: activeCargaId,
         cargado: guiaData.cargado || [],
         detalle: guiaData.detalle || [],
         horaGuardado: now.toLocaleTimeString(),
@@ -558,7 +627,7 @@ export default function GuiaCargaScreen({ navigation }) {
               setIsPolling(false);
               setScanningEnabled(false);
               // Forzamos refresh del header para mostrar "FINALIZADA" si cambió el status
-              fetchGuia(numeroCarga, false);
+              fetchGuia(activeCargaId, false);
             }
           }
         ],
@@ -575,6 +644,7 @@ export default function GuiaCargaScreen({ navigation }) {
   const resetScreen = () => {
     setGuiaData(null);
     setNumeroCarga('');
+    setActiveCargaId(null);
     setEscaneos({});
     setIsPolling(false);
     setNotaScan('');
@@ -648,7 +718,7 @@ export default function GuiaCargaScreen({ navigation }) {
     }
 
     return result;
-  }, [guiaData, escaneos, numeroCarga]);
+  }, [guiaData, escaneos, activeCargaId]);
 
   const handleResult = (res) => {
     if (res.result === 'success') {
@@ -734,10 +804,13 @@ export default function GuiaCargaScreen({ navigation }) {
   // --- Handlers UI ---
   const handleSearch = () => {
     if (!numeroCarga) return;
+    // We DON'T clear guiaData yet to avoid "reloads" during typing if undesired, 
+    // but here it's a manual search, so we should.
     setGuiaData(null);
     setEscaneos({});
     setScanningEnabled(false);
     setIsPolling(false); // Stop old polling
+    setActiveCargaId(null); // Reset active ID until next success fetch
     fetchGuia(numeroCarga, false);
   };
 
